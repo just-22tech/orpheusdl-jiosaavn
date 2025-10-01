@@ -8,7 +8,7 @@
 ### Installation
 - Clone the repository from your ```orpheusdl``` directory:\
 ```
-git clone https://github.com/bunnykek/orpheusdl-jiosaavn modules/jiosaavn
+git clone https://github.com/just-22tech/orpheusdl-jiosaavn modules/jiosaavn
 ```        
 ```
 python orpheus.py
