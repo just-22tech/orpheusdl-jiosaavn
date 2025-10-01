@@ -81,13 +81,13 @@ class ModuleInterface:
                 'data':{self.artist_album_song_rx.search(song['perma_url']).group(2): song for song in playlist_data['songs']}
             } # optional, whatever you want
         )
-    
+
 
     def get_album_json(self, album_id: str) -> dict:
         album_json = self.session.get(self.album_api.format(album_id)).json()
         return album_json
-    
-    
+
+
     def get_album_info(self, album_id: str, data={}) -> Optional[AlbumInfo]: # Mandatory if ModuleModes.download
         album_data = data.get(album_id) or self.get_album_json(album_id)
 
@@ -95,7 +95,7 @@ class ModuleInterface:
         track_extra_kwargs['data']['album_artist']=html.unescape(album_data['primary_artists'])
         track_extra_kwargs['data']['total_tracks']=len(album_data['songs'])
         track_extra_kwargs['data']['track_no'] = {self.artist_album_song_rx.search(song['perma_url']).group(2): i+1 for i, song in enumerate(album_data['songs'])}
-        
+
 
         return AlbumInfo(
             name = sanitise_name(html.unescape(album_data['name'])),
@@ -112,7 +112,7 @@ class ModuleInterface:
             description = '', # optional
             track_extra_kwargs = track_extra_kwargs
         )
-    
+
     def get_track_json(self, song_id: str) -> dict:
         metadata = self.session.get(self.song_api.format(song_id)).json()
         song_json = metadata[f'{list(metadata.keys())[0]}']
@@ -121,7 +121,7 @@ class ModuleInterface:
 
     def get_track_info(self, track_id: str, quality_tier: QualityEnum, codec_options: CodecOptions, data={}) -> TrackInfo: # Mandatory
         track_data =  data.get(track_id) or self.get_track_json(track_id)
-        
+
         tags = Tags( # every single one of these is optional
             album_artist = sanitise_name(html.unescape(data.get('album_artist', track_data.get('primary_artists', '')))),
             composer = sanitise_name(html.unescape(track_data.get('music', ''))),
@@ -163,7 +163,7 @@ class ModuleInterface:
             lyrics_extra_kwargs = {'data': {track_id: track_data}}, # optional, whatever you want, but be very careful
             error = '' # only use if there is an error
         )
-    
+
 
     def getCdnURL(self, encurl: str, quality_tier):
         params = {
@@ -193,7 +193,7 @@ class ModuleInterface:
             'Starring': starring
         } if starring else {}
         return [CreditsInfo(k, v) for k, v in credits_dict.items()]
-    
+
     def get_track_cover(self, track_id: str, cover_options: CoverOptions, data={}) -> CoverInfo: # Mandatory if ModuleModes.covers
         track_data = data.get(track_id) or self.get_track_json(track_id)
         cover_url = track_data['image'].replace('150', '500')
@@ -225,7 +225,7 @@ class ModuleInterface:
             tracks = [], # optional
             track_extra_kwargs = {'data': ''} # optional, whatever you want
         )
-    
+
     def search_json(self, query_type, query, limit):
         qt = {
             DownloadTypeEnum.track: 'search.getResults',
@@ -245,7 +245,7 @@ class ModuleInterface:
         }
         search_response = self.session.get('https://www.jiosaavn.com/api.php', params=params).json()
         return search_response.get('results', [])
-    
+
 
     def search(self, query_type: DownloadTypeEnum, query: str, track_info: TrackInfo = None, limit: int = 10): # Mandatory
         results = self.search_json(query_type, query, limit)
@@ -264,4 +264,4 @@ class ModuleInterface:
                     name = sanitise_name(i['title']), # optional only if a lyrics/covers only module
                 ) for i in results]
         return []
-      
+        
