@@ -1,11 +1,11 @@
 #by @bunnykek
 import re
 from utils.models import *
-from utils.utils import create_temp_filename, create_requests_session
+from utils.utils import create_temp_filename, create_requests_session, sanitise_name
 import html
 
 
-CLEANR = re.compile('<.*?>') 
+CLEANR = re.compile('<.*?>')
 
 def cleanhtml(raw_html):
   cleantext = re.sub(CLEANR, '', raw_html)
@@ -19,9 +19,9 @@ module_information = ModuleInformation( # Only service_name and module_supported
     global_storage_variables = [],
     session_settings = {},
     session_storage_variables = [],
-    netlocation_constant = 'jiosaavn', 
+    netlocation_constant = 'jiosaavn',
     test_url = 'https://www.jiosaavn.com/song/hua-main/Fl8HXENfU1c',
-    
+
     url_constants = { # This is the default if no url_constants is given. Unused if custom_url_parsing is flagged
         'song': DownloadTypeEnum.track,
         'album': DownloadTypeEnum.album,
@@ -51,7 +51,7 @@ class ModuleInterface:
 
         self.song_api = "https://www.jiosaavn.com/api.php?__call=webapi.get&token={}&type=song&_format=json"
         self.album_api = "https://www.jiosaavn.com/api.php?__call=webapi.get&token={}&type=album&_format=json"
-        self.playlist_api = "https://www.jiosaavn.com/api.php?__call=webapi.get&token={}&type=playlist&_format=json"
+        self.playlist_api = "https://www.jiosaavn.com/api.php?__call=webapi.get&token={}&type=playlist&_format=json&n=1000"
         self.artist_api = "https://www.jiosaavn.com/api.php?__call=webapi.get&token={}&type=artist&p={}&n_song=50&n_album=50&sub_type=albums&more=true&category=latest&&sort_order=&includeMetaTags=0&ctx=web6dot0&api_version=4&_format=json&_marker=0"
         self.lyrics_api = "https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&ctx=web6dot0&api_version=4&_format=json&_marker=0%3F_marker%3D0&lyrics_id="
         self.artist_album_song_rx = re.compile(r"https://www\.jiosaavn\.com/(artist|album|song)/.+?/(.+)")
@@ -63,11 +63,11 @@ class ModuleInterface:
         playlist_json = self.session.get(self.playlist_api.format(playlist_id)).json()
         return playlist_json
 
-    def get_playlist_info(self, playlist_id: str, data={}) -> PlaylistInfo:  # Mandatory if either ModuleModes.download or ModuleModes.playlist
-        playlist_data = data[playlist_id] if playlist_id in data else self.get_playlist_json(playlist_id)
+    def get_playlist_info(self, playlist_id: str, data={}) -> PlaylistInfo: # Mandatory if either ModuleModes.download or ModuleModes.playlist
+        playlist_data = data.get(playlist_id) or self.get_playlist_json(playlist_id)
 
         return PlaylistInfo(
-            name = playlist_data['listname'],
+            name = sanitise_name(html.unescape(playlist_data['listname'])),
             creator = '',
             tracks = [self.artist_album_song_rx.search(song['perma_url']).group(2) for song in playlist_data['songs']],
             release_year = '',
@@ -89,20 +89,20 @@ class ModuleInterface:
     
     
     def get_album_info(self, album_id: str, data={}) -> Optional[AlbumInfo]: # Mandatory if ModuleModes.download
-        album_data = data[album_id] if album_id in data else self.get_album_json(album_id)
+        album_data = data.get(album_id) or self.get_album_json(album_id)
 
         track_extra_kwargs = {'data' : {self.artist_album_song_rx.search(song['perma_url']).group(2): song for song in album_data['songs']} }
-        track_extra_kwargs['data']['album_artist']=html.unescape(album_data['primary_artists']),
-        track_extra_kwargs['data']['total_tracks']=len(album_data['songs']),
-        track_extra_kwargs['data']['track_no'] = {self.artist_album_song_rx.search(song['perma_url']).group(2): i+1 for i, song in enumerate(album_data['songs'])},
+        track_extra_kwargs['data']['album_artist']=html.unescape(album_data['primary_artists'])
+        track_extra_kwargs['data']['total_tracks']=len(album_data['songs'])
+        track_extra_kwargs['data']['track_no'] = {self.artist_album_song_rx.search(song['perma_url']).group(2): i+1 for i, song in enumerate(album_data['songs'])}
         
 
         return AlbumInfo(
-            name = html.unescape(album_data['name']),
-            artist = html.unescape(album_data['primary_artists']),
+            name = sanitise_name(html.unescape(album_data['name'])),
+            artist = sanitise_name(html.unescape(album_data['primary_artists'])),
             tracks = [self.artist_album_song_rx.search(song['perma_url']).group(2) for song in album_data['songs']],
             release_year = album_data['year'],
-            explicit = '',
+            explicit = bool(int(album_data.get('explicit_content', '0'))),
             artist_id = album_data['primary_artists_id'], # optional
             booklet_url = '', # optional
             cover_url = album_data['image'].replace('150', '500'), # optional
@@ -120,14 +120,14 @@ class ModuleInterface:
 
 
     def get_track_info(self, track_id: str, quality_tier: QualityEnum, codec_options: CodecOptions, data={}) -> TrackInfo: # Mandatory
-        track_data =  data[track_id] if data and track_id in data else self.get_track_json(track_id)
-        # print(json.dumps(data, indent=2))   
+        track_data =  data.get(track_id) or self.get_track_json(track_id)
+        
         tags = Tags( # every single one of these is optional
-            album_artist = data['album_artist'] if data and 'album_artist' in data else track_data['primary_artists'].split(', '),
-            composer = html.unescape(track_data['music']),
-            track_number = data['track_no'][0][track_id] if data and 'track_no' in data else 1,
-            total_tracks = data['total_tracks'][0] if data and 'total_tracks' in data else 1,
-            copyright = html.unescape(track_data['copyright_text']),
+            album_artist = sanitise_name(html.unescape(data.get('album_artist', track_data.get('primary_artists', '')))),
+            composer = sanitise_name(html.unescape(track_data.get('music', ''))),
+            track_number = data.get('track_no', {}).get(track_id, 1),
+            total_tracks = data.get('total_tracks', 1),
+            copyright = sanitise_name(html.unescape(track_data.get('copyright_text', ''))),
             isrc = '',
             upc = '',
             disc_number = 1, # None/0/1 if no discs
@@ -135,26 +135,29 @@ class ModuleInterface:
             replay_gain = 0.0,
             replay_peak = 0.0,
             genres = [],
-            release_date = track_data['release_date'] # Format: YYYY-MM-DD
+            release_date = track_data.get('release_date') # Format: YYYY-MM-DD
         )
 
+        cdn_url = self.getCdnURL(track_data['encrypted_media_url'], quality_tier)
+        cdn_url = cdn_url.replace('web','aac', 1)
+
         return TrackInfo(
-            name = html.unescape(track_data['song']),
+            name = sanitise_name(html.unescape(track_data['song'])),
             album_id = track_data['albumid'],
-            album = html.unescape(track_data['album']),
-            artists = html.unescape(track_data['primary_artists']).split(', '),
+            album = sanitise_name(html.unescape(track_data['album'])),
+            artists = [sanitise_name(artist.strip()) for artist in html.unescape(track_data['primary_artists']).split(',')],
             tags = tags,
             codec = CodecEnum.AAC,
             cover_url = track_data['image'].replace('150', '500'), # make sure to check module_controller.orpheus_options.default_cover_options
-            release_year = track_data['year'],
-            explicit = True if track_data['explicit_content']==1 else False,
+            release_year = int(track_data['year']),
+            explicit = bool(int(track_data['explicit_content'])),
             artist_id = track_data['primary_artists_id'], # optional
             animated_cover_url = '', # optional
             description = '', # optional
             bit_depth = 16, # optional
             sample_rate = 44.1, # optional
-            bitrate = self.quality_parse[quality_tier].split('_')[-1], # optional
-            download_extra_kwargs = {'file_url': self.getCdnURL(track_data['encrypted_media_url'], quality_tier), 'codec': 'AAC'}, # optional only if download_type isn't DownloadEnum.TEMP_FILE_PATH, whatever you want
+            bitrate = int(self.quality_parse[quality_tier].split('_')[-1]), # optional
+            download_extra_kwargs = {'file_url': cdn_url, 'codec': 'AAC'}, # optional only if download_type isn't DownloadEnum.TEMP_FILE_PATH, whatever you want
             cover_extra_kwargs = {'data': {track_id: track_data}}, # optional, whatever you want, but be very careful
             credits_extra_kwargs = {'data': {track_id: track_data}}, # optional, whatever you want, but be very careful
             lyrics_extra_kwargs = {'data': {track_id: track_data}}, # optional, whatever you want, but be very careful
@@ -176,33 +179,28 @@ class ModuleInterface:
         return response.json()["auth_url"]
 
     def get_track_download(self, file_url, codec):
-        track_location = create_temp_filename()
-        
-        # Do magic here
         return TrackDownloadInfo(
             download_type = DownloadEnum.URL,
             file_url = file_url, # optional only if download_type isn't DownloadEnum.URL
-            file_url_headers = {}, # optional
-            temp_file_path = track_location
+            file_url_headers = {} # optional
         )
 
 
     def get_track_credits(self, track_id: str, data={}): # Mandatory if ModuleModes.credits
-        track_data = data[track_id] if data and track_id in data else self.get_track_json(track_id)
-        # print("get_track_credits", track_data)
-        starring = track_data['starring'].split(', ')
+        track_data = data.get(track_id) or self.get_track_json(track_id)
+        starring = [sanitise_name(s.strip()) for s in track_data.get('starring', '').split(',')]
         credits_dict = {
             'Starring': starring
-        }
+        } if starring else {}
         return [CreditsInfo(k, v) for k, v in credits_dict.items()]
     
     def get_track_cover(self, track_id: str, cover_options: CoverOptions, data={}) -> CoverInfo: # Mandatory if ModuleModes.covers
-        track_data = data[track_id] if data and track_id in data else self.get_track_json(track_id)
+        track_data = data.get(track_id) or self.get_track_json(track_id)
         cover_url = track_data['image'].replace('150', '500')
         return CoverInfo(url=cover_url, file_type=ImageFileTypeEnum.jpg)
 
     def get_track_lyrics(self, track_id: str, data={}) -> LyricsInfo: # Mandatory if ModuleModes.lyrics
-        track_data = data[track_id] if data and track_id in data else self.get_track_json(track_id)
+        track_data = data.get(track_id) or self.get_track_json(track_id)
         lyric_json = self.session.get(self.lyrics_api + track_data['id']).json()
         plain_lyrics =  lyric_json.get("lyrics")
         if plain_lyrics is not None:
@@ -216,12 +214,12 @@ class ModuleInterface:
         artist_name = self.session.get(self.artist_api.format(artist_id, 0)).json()['name']
         for i in range(10): 
             response = self.session.get(self.artist_api.format(artist_id, i)).json()
-            if len(response['topAlbums'])==0:
+            if not response.get('topAlbums'):
                 break
             albums_id.extend([self.artist_album_song_rx.search(album['perma_url']).group(2) for album in response['topAlbums']])
 
         return ArtistInfo(
-            name = artist_name,
+            name = sanitise_name(artist_name),
             albums = albums_id, # optional
             album_extra_kwargs = {'data': ''}, # optional, whatever you want
             tracks = [], # optional
@@ -246,24 +244,24 @@ class ModuleInterface:
             '__call': qt[query_type],
         }
         search_response = self.session.get('https://www.jiosaavn.com/api.php', params=params).json()
-        return search_response['results']
+        return search_response.get('results', [])
     
 
     def search(self, query_type: DownloadTypeEnum, query: str, track_info: TrackInfo = None, limit: int = 10): # Mandatory
-        results = {}
-        print("Jiosaavn doesn't support ISRC, therefore using search query")
         results = self.search_json(query_type, query, limit)
 
         if query_type in [DownloadTypeEnum.track, DownloadTypeEnum.album]:
             return [SearchResult(
                     result_id = self.artist_album_song_rx.search(i['perma_url']).group(2),
-                    name = i['title'], # optional only if a lyrics/covers only module
-                    artists = i['subtitle'].split(', '), # optional only if a lyrics/covers only module or an artist search
-                    year = i['year'], # optional
-                    explicit = True if i['explicit_content']=='1' else False, # optional
+                    name = sanitise_name(i['title']), # optional only if a lyrics/covers only module
+                    artists = [sanitise_name(a.strip()) for a in i.get('subtitle', '').split(',')], # optional only if a lyrics/covers only module or an artist search
+                    year = i.get('year'), # optional
+                    explicit = bool(int(i.get('explicit_content', '0'))), # optional
                 ) for i in results]
-        elif query_type == [DownloadTypeEnum.playlist, DownloadTypeEnum.artist]:
+        elif query_type in [DownloadTypeEnum.playlist, DownloadTypeEnum.artist]:
             return [SearchResult(
                     result_id = i['perma_url'].split('/')[-1],
-                    name = i['title'], # optional only if a lyrics/covers only module
+                    name = sanitise_name(i['title']), # optional only if a lyrics/covers only module
                 ) for i in results]
+        return []
+      
